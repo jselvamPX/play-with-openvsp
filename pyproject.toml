@@ -1,0 +1,30 @@
+[project]
+name = "play-with-openvsp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "avlpy",
+    "charm",
+    "degen-geom",
+    "matplotlib>=3.10.5",
+    "openvsp",
+    "openvsp-config",
+    "pathlib>=1.0.1",
+    "pip>=25.2",
+    "pypmarc",
+    "pytest>=8.4.1",
+    "utilities",
+    "vsp-airfoils",
+]
+
+[tool.uv.sources]
+vsp-airfoils = { path = "OpenVSP-3.45.2-MacOS/python/vsp_airfoils" }
+utilities = { path = "OpenVSP-3.45.2-MacOS/python/utilities" }
+degen-geom = { path = "OpenVSP-3.45.2-MacOS/python/degen_geom" }
+openvsp-config = { path = "OpenVSP-3.45.2-MacOS/python/openvsp_config" }
+openvsp = { path = "OpenVSP-3.45.2-MacOS/python/openvsp" }
+charm = { path = "OpenVSP-3.45.2-MacOS/python/CHARM" }
+avlpy = { path = "OpenVSP-3.45.2-MacOS/python/AvlPy" }
+pypmarc = { path = "OpenVSP-3.45.2-MacOS/python/pyPMARC" }
