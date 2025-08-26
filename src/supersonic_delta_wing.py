@@ -362,26 +362,31 @@ def runSupersonicDeltaWingstudy(mode=3):
     setup_filepaths()
 
     test = SupersonicDeltaWingTest()
-    if mode == 1 or mode == 2:
-        with open(
-            scriptpath + "/supersonic_files/supersonictest.pckl", "rb"
-        ) as picklefile:
-            test = pickle.load(picklefile)
-    if mode == 1:
-        test.GenerateSupersonicDeltaWingCharts()
+
+    # Add structural analysis
+    from coupled_loads_analysis import CoupledAeroStructAnalysis
+
+    coupled = CoupledAeroStructAnalysis(
+        working_dir=scriptpath + "/supersonic_files",
+        ccx_path="C:/Program Files/CalculiX/ccx/ccx.exe",  # Add your CCX path
+    )
+
     if mode == 3:
-        test.SupersonicDeltaWingStudy()
-        with open(
-            scriptpath + "/supersonic_files/supersonictest.pckl", "wb"
-        ) as picklefile:
-            pickle.dump(test, picklefile)
-    if mode == 2:
-        test.TestSupersonicDeltaWing()
+        test.GenerateSupersonicDeltaWing()
+
+        # Run aero-structural coupling for each configuration
+        for sweep in test.m_Sweep:
+            for mach_idx, mach in enumerate(test.m_SuperMachVec):
+                results = coupled.run_complete_analysis(
+                    sweep_angle=sweep, mach=mach, alpha=5.0
+                )
+
+                # Store structural results with aerodynamic data
+                test.Cl_alpha_tan_sweep[test.m_Sweep.index(sweep)][mach_idx] = (
+                    results.get("CL", 0)
+                )
+
         test.GenerateSupersonicDeltaWingCharts()
-        with open(
-            scriptpath + "/supersonic_files/supersonictest.pckl", "wb"
-        ) as picklefile:
-            pickle.dump(test, picklefile)
 
 
 def setup_filepaths():
