@@ -3,15 +3,12 @@ Coupled Aero-Structural Analysis Module
 Integrates with your supersonic delta wing code and runs Calculix FEA
 """
 
-import os
 import subprocess
 import shutil
 import openvsp as vsp
-import numpy as np
-import pandas as pd
 from .ibrahim import create_node_sets
 from pathlib import Path
-import csv
+import ccx2paraview as ccx2pv
 
 
 class CoupledAeroStructAnalysis:
@@ -412,43 +409,6 @@ class CoupledAeroStructAnalysis:
             print(f"Error running Calculix: {e}")
             return None
 
-    def extract_structural_results(self, frd_file):
-        """Extract displacements and stresses from Calculix results"""
-
-        # Create CGX script to export results
-        cgx_script = self.working_dir / "export_results.fbd"
-
-        with open(cgx_script, "w") as f:
-            f.write(f"read {frd_file}\n")
-            f.write("send all abq\n")
-            f.write("send all abq nam\n")
-            f.write("send all abq ds 1\n")  # Export displacement at step 1
-            f.write("quit\n")
-
-        # Run CGX if available
-        if os.path.exists(cgx_script):
-            os.system(f"cgx -b {cgx_script}")
-
-        # Parse displacement results
-        disp_file = self.working_dir / "all_ds1.dat"
-        max_disp = 0
-
-        if disp_file.exists():
-            with open(disp_file, "r") as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        try:
-                            disp = float(parts[1])
-                            max_disp = max(max_disp, abs(disp))
-                        except ValueError:
-                            continue
-
-        self.results["max_displacement"] = max_disp
-        print(f"Maximum displacement: {max_disp:.6f} m")
-
-        return max_disp
-
     def run_complete_analysis(self, sweep_angle=45, mach=1.5, alpha=5.0):
         """
         Run complete aero-structural analysis
@@ -505,17 +465,18 @@ class CoupledAeroStructAnalysis:
             print("Running Calculix FEA...")
             try:
                 frd_file = self.run_calculix(inp_file)
-                if frd_file:
-                    # Step 6: Extract results
-                    print("Extracting structural results...")
-                    max_disp = self.extract_structural_results(frd_file)
             except Exception as e:
                 print(f"FEA analysis failed: {e}")
         else:
-            print("Skipping FEA (no CCX path specified or model creation failed)")
+            raise Exception(
+                "Skipping FEA (no CCX path specified or model creation failed)"
+            )
 
         # Save summary
         self.save_results_summary(sweep_angle, mach, alpha)
+
+        converter = ccx2pv.Converter(str(frd_file), ["vtk"])
+        converter.run()
 
         return self.results
 
