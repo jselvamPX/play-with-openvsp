@@ -8,6 +8,8 @@ import subprocess
 import shutil
 import openvsp as vsp
 import numpy as np
+import pandas as pd
+from .ibrahim import create_node_sets
 from pathlib import Path
 import csv
 
@@ -18,7 +20,12 @@ class CoupledAeroStructAnalysis:
     Works with your existing supersonic delta wing setup
     """
 
-    def __init__(self, working_dir, vsp_dir=None, ccx_path=None):
+    def __init__(
+        self,
+        working_dir,
+        vsp_dir=None,
+        ccx_path="/opt/homebrew/Cellar/calculix-ccx/2.22/bin/ccx_2.22",
+    ):
         self.working_dir = Path(working_dir)
         self.vsp_dir = Path(vsp_dir) if vsp_dir else None
         self.ccx_path = ccx_path
@@ -271,15 +278,24 @@ class CoupledAeroStructAnalysis:
         # Generate mesh
         vsp.SetFeaMeshStructIndex(struct_id)
 
+        vsp.SetFeaMeshVal(wing_id, struct_id, vsp.CFD_MAX_EDGE_LEN, 0.5)
+        vsp.SetFeaMeshVal(wing_id, struct_id, vsp.CFD_MIN_EDGE_LEN, 0.05)
+        vsp.SetFeaMeshVal(wing_id, struct_id, vsp.CFD_HALF_MESH_FLAG, True)
+
         vsp.ComputeFeaMesh(wing_id, struct_id, vsp.FEA_CALCULIX_FILE_NAME)
 
         # Create Calculix input file
-        inp_file = self.working_dir / f"delta_wing_{sweep_angle}_analysis.inp"
+        # find file with .inp extension
+        inp_file = next(self.working_dir.glob("*.inp"))
 
-        # Convert to Calculix format with loads
-        # self._write_calculix_file(inp_file, inp_file, loads)
+        # Create a modified version with proper boundary conditions and loads
+        modified_inp_file = self.working_dir / f"delta_wing_{sweep_angle}_modified.inp"
+        shutil.copy(inp_file, modified_inp_file)
 
-        return inp_file
+        # run ibrahim.py to add boundary conditions and loads
+        create_node_sets(inp_file, modified_inp_file)
+
+        return modified_inp_file
 
     def _add_delta_wing_structure(self, wing_id, struct_id, sweep_angle):
         """Add ribs and spars appropriate for delta wing"""
@@ -311,8 +327,8 @@ class CoupledAeroStructAnalysis:
             print(f"Error setting rib array parameters: {e}")
 
         # Add main spars along the sweep line
-        # print("Adding spars...")
-        # spar_locations = [0.25, 0.50, 0.75]  # Three main spars
+        print("Adding spars...")
+        spar_locations = [0.25, 0.50, 0.75]  # Three main spars
 
         # for i, spar_loc in enumerate(spar_locations):
         #     spar_id = vsp.AddFeaPart(wing_id, struct_id, vsp.FEA_SPAR)
@@ -325,12 +341,6 @@ class CoupledAeroStructAnalysis:
         #         )
         #         vsp.SetParmVal(
         #             vsp.FindParm(spar_id, "RelCenterLocation", "FeaPart"), spar_loc
-        #         )
-
-        #         # Set spar orientation (parallel to sweep)
-        #         vsp.SetParmVal(
-        #             vsp.FindParm(spar_id, "PerpendicularEdgeType", "FeaSpar"),
-        #             vsp.LE_NORMAL,
         #         )
 
         #         print(f"Spar {i+1} created with ID: {spar_id} at location {spar_loc}")
@@ -365,34 +375,41 @@ class CoupledAeroStructAnalysis:
     def run_calculix(self, inp_file):
         """
         Run Calculix analysis
-
-        Parameters:
-        -----------
-        inp_file : Path
-            Calculix input file
         """
         if not self.ccx_path:
             print("CCX path not specified. Skipping FEA analysis.")
             return None
 
-        # Create batch file to run Calculix
-        bat_file = self.working_dir / "run_ccx.bat"
+        # CalculiX expects .dat files, so rename if needed
+        dat_file = inp_file.with_suffix(".dat")
+        if inp_file.exists() and not dat_file.exists():
+            shutil.copy(inp_file, dat_file)
 
-        with open(bat_file, "w") as f:
-            f.write("@echo off\n")
-            f.write(f'"{self.ccx_path}" "{inp_file.stem}"\n')
-            f.write("exit\n")
+        # Run CCX with -i flag and filename without extension
+        jobname = dat_file.with_suffix("").name  # Just the filename without path
+        cmd = [str(self.ccx_path), "-i", jobname]
+        print(f"Running: {' '.join(cmd)}")
 
-        # Run Calculix
-        subprocess.call(str(bat_file), cwd=str(self.working_dir))
-
-        # Check for results
-        frd_file = inp_file.with_suffix(".frd")
-        if frd_file.exists():
-            print(f"FEA analysis complete: {frd_file}")
-            return frd_file
-        else:
-            print("FEA analysis failed - no results file found")
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, cwd=str(self.working_dir)
+            )
+            if result.returncode == 0:
+                print("Calculix analysis completed successfully")
+                frd_file = inp_file.with_suffix(".frd")
+                if frd_file.exists():
+                    print(f"FEA analysis complete: {frd_file}")
+                    return frd_file
+                else:
+                    print("FEA analysis completed but no results file found")
+                    return None
+            else:
+                print(f"Calculix failed with return code {result.returncode}")
+                print(f"stdout: {result.stdout}")
+                print(f"stderr: {result.stderr}")
+                return None
+        except Exception as e:
+            print(f"Error running Calculix: {e}")
             return None
 
     def extract_structural_results(self, frd_file):
@@ -483,6 +500,8 @@ class CoupledAeroStructAnalysis:
 
         # Step 5: Run FEA (if CCX path is available)
         if self.ccx_path and inp_file:
+            print(f"CCX path: {self.ccx_path}")
+            print(f"Input file: {inp_file}")
             print("Running Calculix FEA...")
             try:
                 frd_file = self.run_calculix(inp_file)
@@ -541,7 +560,7 @@ def integrate_with_supersonic_test():
     # Initialize coupled analysis
     coupled = CoupledAeroStructAnalysis(
         working_dir=working_dir,
-        ccx_path="C:/path/to/ccx.exe",  # Update with your CCX path
+        ccx_path="/opt/homebrew/Cellar/calculix-ccx/2.22/bin/ccx_2.22",  # Update with your CCX path
     )
 
     # Run for different sweep angles like in your test

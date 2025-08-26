@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "avlpy",
+    "ccx2paraview[vtk]>=3.2.0",
     "charm",
     "degen-geom",
     "matplotlib>=3.10.5",
